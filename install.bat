@@ -1,11 +1,11 @@
 @echo off
 chcp 65001 >nul
-title LG V50 DisplayPort Alt Mode & Desktop Mode Fix
+title LG V50 Safe Wired Screen Mirroring (1:1) Controller
 cls
 
 echo ==============================================================================
-echo        LG V50 THINQ 5G - CÔNG CỤ PHỤC HỒI XUẤT MÀN HÌNH RỜI
-echo           (DisplayPort Alt Mode ^& Android Desktop Mode Fix)
+echo        LG V50 THINQ 5G - CÔNG CỤ PHỤC HỒI XUẤT MÀN HÌNH RỜI (1:1 MIRROR)
+echo        (DisplayPort Alt Mode ^& PM8150B Electrical Safety Interlock)
 echo ==============================================================================
 echo.
 
@@ -31,47 +31,71 @@ if %errorlevel% neq 0 (
 
 echo [✓] Đã kết nối với thiết bị thành công!
 echo.
-echo Chọn hành động bạn muốn thực hiện:
-echo   [1] Kích hoạt xuất màn hình NGAY LẬP TỨC (Không cần khởi động lại)
-echo   [2] Cài đặt VĨNH VIỄN (Tự động kích hoạt mỗi khi khởi động máy - Magisk/KernelSU)
-echo   [3] Thoát
-echo.
-set /p choice="Nhập lựa chọn của bạn (1-3): "
+echo [*] Đang đồng bộ kịch bản an toàn v50_safe_mirror.sh vào thiết bị...
+adb push "%~dp0..\scripts\v50_safe_mirror.sh" /data/local/tmp/v50_safe_mirror.sh >nul
+adb shell "su -c 'chmod 755 /data/local/tmp/v50_safe_mirror.sh; rm -f /data/adb/service.d/99-v50-dp-fix.sh 2>/dev/null'" >nul
 
-if "%choice%"=="1" goto ONESHOT
-if "%choice%"=="2" goto PERSISTENT
-if "%choice%"=="3" goto EXIT
+echo.
+echo ==============================================================================
+echo Chọn hành động bạn muốn thực hiện (Runtime / On-Demand an toàn):
+echo   [1] Kích hoạt xuất màn hình 1:1 NGAY LẬP TỨC (Manual Override On)
+echo   [2] Khởi chạy dịch vụ Daemon giám sát cắm cáp an toàn ở nền (Daemon Start)
+echo   [3] Kiểm tra trạng thái xuất hình và an toàn điện áp PM8150B (Status Check)
+echo   [4] Dừng xuất hình và khôi phục phần cứng về mặc định (Stop ^& Teardown)
+echo   [5] Thoát
+echo ==============================================================================
+echo Lưu ý: Theo tiêu chuẩn an toàn Milestone 2, hệ thống KHÔNG can thiệp lúc boot
+echo để bảo vệ chip nguồn PM8150B và tránh crash LiveDisplay HAL.
+echo ==============================================================================
+echo.
+set /p choice="Nhập lựa chọn của bạn (1-5): "
+
+if "%choice%"=="1" goto MANUAL_ON
+if "%choice%"=="2" goto DAEMON_START
+if "%choice%"=="3" goto STATUS_CHECK
+if "%choice%"=="4" goto STOP_ALL
+if "%choice%"=="5" goto EXIT
 
 echo [!] Lựa chọn không hợp lệ.
 pause
 exit /b 0
 
-:ONESHOT
+:MANUAL_ON
 echo.
-echo [*] Đang đẩy script vào thiết bị...
-adb push "%~dp0v50_dp_fix.sh" /data/local/tmp/v50_dp_fix.sh >nul
-adb shell "chmod 755 /data/local/tmp/v50_dp_fix.sh"
-echo [*] Đang kích hoạt DisplayPort và Desktop Mode qua quyền Root...
-adb shell "su -c 'sh /data/local/tmp/v50_dp_fix.sh'"
+echo [*] Đang kích hoạt DisplayPort SBU và cấu hình phản chiếu màn hình 1:1...
+adb shell "su -c '/data/local/tmp/v50_safe_mirror.sh manual-on'"
 echo.
 echo ==============================================================================
-echo [✓] HOÀN TẤT! Hãy cắm Hub USB-C (có cắm nguồn sạc PD) vào điện thoại để xuất hình.
+echo [✓] HOÀN TẤT! Hãy cắm cáp Type-C sang HDMI/DP hoặc Hub USB-C vào màn hình.
 echo ==============================================================================
 pause
 exit /b 0
 
-:PERSISTENT
+:DAEMON_START
 echo.
-echo [*] Đang cài đặt dịch vụ tự khởi động vào /data/adb/service.d/...
-adb push "%~dp0v50_dp_fix.sh" /data/local/tmp/v50_dp_fix.sh >nul
-adb shell "su -c 'mkdir -p /data/adb/service.d && cp /data/local/tmp/v50_dp_fix.sh /data/adb/service.d/99-v50-dp-fix.sh && chmod 755 /data/adb/service.d/99-v50-dp-fix.sh'"
-echo [*] Đang chạy kích hoạt thử nghiệm lần đầu...
-adb shell "su -c 'sh /data/adb/service.d/99-v50-dp-fix.sh'"
+echo [*] Đang khởi chạy daemon giám sát cắm cáp tự động ở chế độ nền...
+adb shell "su -c '/data/local/tmp/v50_safe_mirror.sh start'"
 echo.
 echo ==============================================================================
-echo [✓] CÀI ĐẶT THÀNH CÔNG!
-echo     Từ bây giờ, tính năng xuất màn hình sẽ tự động bật mỗi khi bạn khởi động máy.
-echo     (Bạn cũng có thể nén file .zip trong thư mục này để flash qua app Magisk).
+echo [✓] Daemon đã được kích hoạt! Tự động bật SBU khi cắm dock/cáp DP.
+echo ==============================================================================
+pause
+exit /b 0
+
+:STATUS_CHECK
+echo.
+adb shell "su -c '/data/local/tmp/v50_safe_mirror.sh status'"
+echo.
+pause
+exit /b 0
+
+:STOP_ALL
+echo.
+echo [*] Đang dừng daemon và đưa phần cứng về trạng thái mặc định an toàn...
+adb shell "su -c '/data/local/tmp/v50_safe_mirror.sh stop'"
+echo.
+echo ==============================================================================
+echo [✓] Phần cứng đã được khôi phục an toàn.
 echo ==============================================================================
 pause
 exit /b 0

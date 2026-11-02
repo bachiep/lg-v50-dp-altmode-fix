@@ -1,30 +1,32 @@
-# LG V50 ThinQ 5G - DisplayPort Alt Mode & Desktop Mode Fix
+# LG V50 ThinQ 5G - Safe Wired Screen Mirroring (1:1) Restoration
 
-> **Phục hồi khả năng xuất màn hình rời (HDMI / DisplayPort over Type-C) và giao diện AOSP Desktop Mode trên LG V50 ThinQ 5G (`LM-V500`) chạy Custom ROM (LineageOS 20, AOSP Android 12/13/14).**
+> **Phục hồi khả năng phản chiếu màn hình có dây 1:1 (Wired Screen Mirroring qua DisplayPort Alt Mode / Type-C) trên LG V50 ThinQ 5G (`LM-V500`) chạy LineageOS 20 (Android 13, Shark Kernel 4.14.215) với cơ chế bảo vệ an toàn điện áp PMIC PM8150B.**
 
 [![Device](https://img.shields.io/badge/Device-LG%20V50%20(LM--V500)-blue.svg)](#)
 [![SoC](https://img.shields.io/badge/SoC-Snapdragon%20855-orange.svg)](#)
-[![Root](https://img.shields.io/badge/Root-Magisk%20%2F%20KernelSU-red.svg)](#)
-[![License](https://img.shields.io/badge/License-MIT-green.svg)](#)
+[![Root](https://img.shields.io/badge/Root-Magisk%20Root-red.svg)](#)
+[![Safety](https://img.shields.io/badge/PM8150B-Protected-success.svg)](#)
 
 ---
 
-## 📌 Nguyên nhân & Bản chất lỗi trên ROM Custom
+## 📌 Cơ chế phần cứng & Kiến trúc an toàn (Milestone 2)
 
-Trên ROM gốc LG UX, máy xuất màn hình bình thường. Nhưng khi lên Custom ROM (như LineageOS), tính năng này biến mất do 2 nguyên nhân phần cứng:
-1. **Mạch chuyển mạch SBU bị ngắt**: LG V50 không dùng chip tự động `FSA4480` như máy khác mà dùng 2 chân vi mạch riêng: **GPIO 119** (bật nguồn cổng AUX/EDID) và **GPIO 87** (đảo chiều cáp Type-C). Trên Custom ROM, driver của LG bị vô hiệu hóa khiến **GPIO 119 luôn tắt (`0`)**, làm màn hình ngoài không thể đọc được tín hiệu nhận diện.
-2. **Thiếu nguồn VCONN**: Chip sạc PM8150B yêu cầu một hợp đồng sạc USB-PD rõ ràng để cấp nguồn 5V VCONN cho chip chuyển đổi HDMI trong sợi cáp.
+Trên ROM gốc LG UX, phần cứng xuất màn hình hoạt động bình thường. Nhưng trên Custom ROM LineageOS 20:
+1. **Chuyển mạch SBU (Auxiliary Differential Pairs)**: LG V50 sử dụng 2 chân GPIO phần cứng rời: **GPIO 119** (bật công tắc SBU / nguồn LDO EDID) và **GPIO 87** (đảo cực CC1/CC2). Driver mặc định của kernel đóng băng SBU (`GPIO 119 = 0`), khiến tín hiệu AUX không thông mạch sang màn hình rời.
+2. **Khóa liên động an toàn điện áp PMIC PM8150B**: 
+   - Tuyệt đối **KHÔNG can thiệp lúc khởi động sớm (early-boot)**: can thiệp boot sớm sẽ làm crash `vendor.lineage.livedisplay@2.1-service.lge_msmnile` dẫn đến init SIGABRT và Magisk bật Safe Mode.
+   - Tuyệt đối **KHÔNG cưỡng ép VCONN (`powers_vconn = y`) khi chưa có thiết bị hoặc khi cắm vào máy tính (PC USB Host)**: xung đột điện áp 5V VBUS từ máy tính sẽ kích hoạt mạch ngắt khẩn cấp của chip sạc PM8150B (`VBUS : lowered`, `hard_reset`) làm sập nguồn phần cứng (hard reboot).
 
 ---
 
-## 🔌 Yêu cầu kết nối phần cứng (Rất quan trọng!)
+## 🔌 Yêu cầu kết nối phần cứng
 
-Bạn **bắt buộc phải sử dụng Hub/Dock USB-C đa năng có cổng cắm sạc Type-C PD** (như Ugreen, Anker, Baseus, Dell, v.v.):
+Sử dụng cáp Type-C sang HDMI/DisplayPort hoặc Hub USB-C:
 
 ```text
 [ Củ sạc Type-C PD (30W - 65W) ]
                 |
-                v (Cắm vào cổng sạc PD-IN của Hub)
+                v (Cắm vào cổng PD-IN của Hub nếu cần sạc)
    +--------------------------+
    |   Hub USB-C đa năng      |====== Cáp HDMI/DP ======> [ Màn hình rời / TV ]
    +--------------------------+
@@ -35,33 +37,43 @@ Bạn **bắt buộc phải sử dụng Hub/Dock USB-C đa năng có cổng cắ
 
 ---
 
-## 🚀 Hướng dẫn cài đặt (Chọn 1 trong 2 cách)
+## 🚀 Hướng dẫn vận hành an toàn (Runtime / On-Demand)
 
-### Cách 1: Flash trực tiếp qua ứng dụng Magisk trên điện thoại (Nhanh nhất)
-1. Tải file **[`v50_dp_altmode_desktop.zip`](./v50_dp_altmode_desktop.zip)** về điện thoại.
-2. Mở ứng dụng **Magisk** $\rightarrow$ chọn tab **Mô-đun (Modules)**.
-3. Chọn **Cài đặt từ bộ nhớ** $\rightarrow$ chọn file `v50_dp_altmode_desktop.zip`.
-4. Khởi động lại máy. Từ bây giờ, tính năng xuất màn hình sẽ tự động kích hoạt mỗi khi mở máy!
-
----
-
-### Cách 2: Cài đặt 1-Click từ máy tính (Windows)
-1. Kết nối LG V50 với máy tính qua cáp USB (hoặc kết nối qua ADB Wi-Fi).
+### Cách 1: Sử dụng công cụ tương tác trên Windows (`install.bat`)
+1. Kết nối điện thoại với máy tính qua Wi-Fi ADB (`adb connect 192.168.100.33:5555`) hoặc cáp USB.
 2. Nhấp đúp chuột vào file **`install.bat`**.
 3. Chọn:
-   - Phím `1`: Kích hoạt xuất màn hình **ngay lập tức** (không cần khởi động lại máy).
-   - Phím `2`: Cài đặt **tự chạy vĩnh viễn** mỗi khi khởi động lại máy.
+   - `[1]`: Kích hoạt xuất màn hình 1:1 ngay lập tức (`manual-on`).
+   - `[2]`: Khởi chạy dịch vụ Daemon nền tự động kích hoạt khi cắm cáp (`start`).
+   - `[3]`: Kiểm tra trạng thái kết nối và an toàn điện áp PM8150B (`status`).
+   - `[4]`: Dừng dịch vụ và khôi phục phần cứng về mặc định (`stop`).
+
+### Cách 2: Chạy trực tiếp qua ADB Shell (Linux/macOS/Windows)
+```bash
+# Đẩy script an toàn vào thiết bị
+adb push scripts/v50_safe_mirror.sh /data/local/tmp/v50_safe_mirror.sh
+adb shell "su -c 'chmod 755 /data/local/tmp/v50_safe_mirror.sh'"
+
+# Khởi chạy daemon nền
+adb shell "su -c '/data/local/tmp/v50_safe_mirror.sh start'"
+
+# Xem trạng thái
+adb shell "su -c '/data/local/tmp/v50_safe_mirror.sh status'"
+
+# Dừng dịch vụ
+adb shell "su -c '/data/local/tmp/v50_safe_mirror.sh stop'"
+```
 
 ---
 
-## 🛠 Thư mục dự án bao gồm
+## 🛠 Danh mục tệp tin
 
-* **`v50_dp_fix.sh`**: Kịch bản All-in-One chạy trực tiếp trên điện thoại (tự động unbind driver cũ, bật GPIO 119=1, cấp VCONN và mở AOSP Desktop Mode).
-* **`v50_dp_altmode_desktop.zip`**: Module Magisk hoàn chỉnh đóng gói sẵn để flash.
-* **`install.bat`**: Công cụ cài đặt tự động 1-click cho máy tính Windows.
+* **`scripts/v50_safe_mirror.sh`**: Kịch bản quản trị an toàn thời gian chạy (Runtime Controller) tích hợp khóa an toàn điện áp PM8150B, bảo vệ LiveDisplay, và phản chiếu màn hình 1:1 native.
+* **`lg-v50-dp-altmode-fix/install.bat`**: Giao diện tương tác 1-Click an toàn cho người dùng Windows.
+* **`lg-v50-dp-altmode-fix/v50_dp_fix.sh`**: Wrapper điều hướng an toàn sang `v50_safe_mirror.sh`.
+* **`lg-v50-dp-altmode-fix/v50_dp_altmode_desktop.zip`**: Gói Magisk an toàn đã vô hiệu hóa boot-hook, bảo vệ thiết bị.
 
 ---
 
 ## 📄 Bản quyền (License)
-
-Dự án phát hành theo giấy phép [MIT License](./LICENSE). Tự do sử dụng, chỉnh sửa và chia sẻ cho cộng đồng người dùng LG V50 ThinQ.
+Dự án phát hành theo giấy phép [MIT License](./LICENSE).
