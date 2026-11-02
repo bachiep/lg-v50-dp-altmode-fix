@@ -563,10 +563,15 @@ cmd_manual_on() {
     configure_mirror_mode
 
     local allow_vconn=0
+    if [ "$safety" = "UNPOWERED_DP" ]; then
+        allow_vconn=1
+    fi
     local pol_arg=""
     for arg in "$@"; do
         if [ "$arg" = "--vconn" ]; then
             allow_vconn=1
+        elif [ "$arg" = "--no-vconn" ]; then
+            allow_vconn=0
         elif [ -n "$arg" ] && [ -z "$pol_arg" ]; then
             pol_arg="$arg"
         fi
@@ -667,8 +672,13 @@ run_monitor_loop() {
         if [ "$safety" = "POWERED_DOCK" ] || [ "$safety" = "UNPOWERED_DP" ]; then
             if [ "$last_state" != "$safety" ]; then
                 log "${C_GREEN}[+] Valid display connection detected ($safety). Applying SBU routing...${C_RESET}"
-                # For powered dock: KEEP powers_vconn = n (self-powered!)
-                apply_sbu_routing "" 0
+                if [ "$safety" = "UNPOWERED_DP" ]; then
+                    # Unpowered dongle/hub needs phone VCONN power
+                    apply_sbu_routing "" 1
+                else
+                    # Powered dock supplies its own power -> keep powers_vconn = n
+                    apply_sbu_routing "" 0
+                fi
                 last_state="$safety"
                 last_pol=$(detect_cc_polarity)
             fi
