@@ -150,20 +150,8 @@ verify_system_ready() {
     local boot_done=$(getprop sys.boot_completed 2>/dev/null || echo "0")
     if [ "$boot_done" != "1" ]; then
         log "${C_RED}[!] SAFETY BLOCK: Android boot has not completed (sys.boot_completed != 1).${C_RESET}"
-        log "${C_RED}[!] Early boot manipulation is strictly prohibited to prevent LiveDisplay HAL crash.${C_RESET}"
+        log "${C_RED}[!] Early boot manipulation is strictly prohibited to prevent display pipeline crash.${C_RESET}"
         return 1
-    fi
-
-    local ld_status=$(getprop init.svc.vendor.livedisplay-hal-2-1-lge_msmnile 2>/dev/null || echo "stopped")
-    if [ "$ld_status" != "running" ]; then
-        log "${C_YELLOW}[!] WARNING: LiveDisplay HAL is not running (status: $ld_status).${C_RESET}"
-        log "${C_YELLOW}[!] Waiting for LiveDisplay HAL initialization to complete...${C_RESET}"
-        sleep 2
-        ld_status=$(getprop init.svc.vendor.livedisplay-hal-2-1-lge_msmnile 2>/dev/null || echo "stopped")
-        if [ "$ld_status" != "running" ]; then
-            log "${C_RED}[!] SAFETY BLOCK: LiveDisplay HAL is not running. Aborting to protect display pipeline.${C_RESET}"
-            return 1
-        fi
     fi
     return 0
 }
@@ -181,6 +169,7 @@ evaluate_safety() {
     local real_type=$(cat "$USB_PS/real_type" 2>/dev/null || echo "Unknown")
     local contract=$(cat "$USBPD_DIR/contract" 2>/dev/null || echo "implicit")
     local typec_mode=$(cat "$USB_PS/typec_mode" 2>/dev/null || echo "Nothing attached")
+    local dp_status=$(cat "$DRM_DP/status" 2>/dev/null || echo "disconnected")
 
     # 1. PC Host Lockout: pc_port online == 1 OR real_type is SDP/CDP
     if [ "$pc_online" = "1" ] || [ "$real_type" = "SDP" ] || [ "$real_type" = "CDP" ]; then
@@ -194,33 +183,49 @@ evaluate_safety() {
         return
     fi
 
-    # 3. Disconnected / Idle
-    if [ "$usb_present" = "0" ] || [ "$typec_mode" = "Nothing attached" ]; then
-        echo "IDLE"
-        return
-    fi
-
-    # 4. Powered USB-PD Dock (Explicit PD contract negotiated with external power supply)
-    if [ "$contract" = "explicit" ] && [ "$real_type" = "USB_PD" ]; then
+    # 3. Powered USB-PD Dock (Explicit PD contract negotiated WITH external charging)
+    if [ "$contract" = "explicit" ] && [ "$real_type" = "USB_PD" ] && [ "$usb_present" = "1" ]; then
         echo "POWERED_DOCK"
         return
     fi
 
-    # 5. Potential Unpowered DP dongle / manual mode (contract implicit or non-standard)
+    # 4. Unpowered USB-C Dock / Dongle (Explicit PD contract or Powered Cable, phone supplies VBUS/VCONN)
+    if [ "$contract" = "explicit" ] && [ "$real_type" = "USB_PD" ] && [ "$usb_present" = "0" ]; then
+        echo "UNPOWERED_DP"
+        return
+    fi
+
+    # 5. Type-C Powered Cable w/ sink or active DRM DisplayPort connection
+    if [ "$typec_mode" = "Powered cable w/ sink" ] || [ "$dp_status" = "connected" ]; then
+        echo "UNPOWERED_DP"
+        return
+    fi
+
+    # 6. Potential Unpowered DP dongle / manual mode
     if [ "$usb_present" = "1" ]; then
         echo "UNPOWERED_DP"
         return
     fi
 
+    # 7. Disconnected / Idle
     echo "IDLE"
 }
 
-# --- Guardrail 3: 1:1 Screen Mirroring Configuration ---
+# --- Guardrail 3: 1:1 Screen Mirroring Configuration & HWC Settings ---
 configure_mirror_mode() {
     log_quiet "[*] Configuring Android framework for 1:1 Screen Mirroring..."
     # Disable Desktop Mode on external displays (0 = 1:1 SurfaceFlinger mirror)
     settings put global force_desktop_mode_on_external_displays 0 2>/dev/null
     setprop persist.sys.desktop_mode 0 2>/dev/null
+    # Configure Qualcomm SM8150 Display HAL properties for external displays
+    setprop vendor.display.disable_hotplug_bwcheck 1 2>/dev/null
+    setprop vendor.display.enable_external_downscale 1 2>/dev/null
+    # Safeguard LiveDisplay HAL: Pause to prevent abort() on external Display 1
+    local ld_status=$(getprop init.svc.vendor.livedisplay-hal-2-1-lge_msmnile 2>/dev/null || echo "stopped")
+    if [ "$ld_status" = "running" ]; then
+        log_quiet "[*] Pausing LiveDisplay HAL to isolate external display pipeline..."
+        stop vendor.livedisplay-hal-2-1-lge_msmnile 2>/dev/null
+    fi
     log_quiet "[+] 1:1 Screen Mirroring configuration active."
 }
 
@@ -375,6 +380,14 @@ teardown_sbu_routing() {
 
     # 5. Clean state file
     rm -f "$STATE_FILE" 2>/dev/null
+
+    # 6. Restore LiveDisplay HAL if it was stopped
+    local ld_status=$(getprop init.svc.vendor.livedisplay-hal-2-1-lge_msmnile 2>/dev/null || echo "stopped")
+    if [ "$ld_status" != "running" ]; then
+        log_quiet "[*] Restoring LiveDisplay HAL for built-in panel..."
+        start vendor.livedisplay-hal-2-1-lge_msmnile 2>/dev/null
+    fi
+
     log_quiet "[+] SBU routing restored to kernel defaults."
 }
 
